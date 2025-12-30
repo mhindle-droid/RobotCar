@@ -1,0 +1,30 @@
+{
+    "name": "test",
+    "description": "",
+    "dependencies": {
+        "core": "*",
+        "microphone": "*",
+        "pxt-mecanum-robot-V2": "github:keyestudio2019/mecanum_robot_v2#f161a000ae13c11373ee2549d0a6147e103ff3cf",
+        "bluetooth": "*"
+    },
+    "files": [
+        "main.blocks",
+        "main.ts",
+        "README.md"
+    ],
+    "testFiles": [
+        "test.ts"
+    ],
+    "targetVersions": {
+        "branch": "v4.0.11",
+        "tag": "v4.0.11",
+        "commits": "https://github.com/microsoft/pxt-microbit/commits/2b9dd6f9b1588b4ad95673b458b3a6eb156bfbd7",
+        "target": "8.0.18",
+        "pxt": "7.0.8",
+        "targetId": "microbit"
+    },
+    "supportedTargets": [
+        "microbit"
+    ],
+    "preferredEditor": "tsprj"
+}
