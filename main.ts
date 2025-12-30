@@ -212,13 +212,3 @@ basic.forever(function () {
     else if (mode == "r") avoid()
     else basic.pause(20)
 })
-
-makerbit.connectIrReceiver(DigitalPin.P0, IrProtocol.Keyestudio)
-
-makerbit.onIrDatagram(function () {
-    const code = makerbit.irDatagram()
-    serial.writeString("IR: ")
-    serial.writeString(code)
-    serial.writeLine("")
-    basic.showString(code)
-})
