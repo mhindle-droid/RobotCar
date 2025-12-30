@@ -1,19 +1,20 @@
-// Keyestudio KS4034F (mecanumRobotV2) - micro:bit V2
-// Bluetooth UART control - NeoPixel removed (NeoPixel commonly breaks BLE advertising in MakeCode)
-// LED matrix left enabled so pairing mode is visible for debugging
+// KS4034 - Bluetooth UART Mecanum Car (micro:bit V2)
+// IMPORTANT: Do NOT add NeoPixel / WS2812 packages. They disable BLE in MakeCode.
+
+bluetooth.setTransmitPower(7)
+bluetooth.startUartService()
+serial.redirectToUSB()
 
 let speed_LF = 50
 let speed_LB = 50
 let speed_RF = 50
 let speed_RB = 50
 
-let ble_val = ""
-let mode = "" // p/q/r/s modes triggered by command letters
+let color_num = 0
+let mode = ""          // "p" line tracking, "q" follow, "r" avoid, "" none
+let lastCmd = ""       // last received command
 
-let distance = 0
-let distance_l = 0
-let distance_r = 0
-
+// ---------- Motion helpers ----------
 function car_forward() {
     mecanumRobotV2.Motor(LR.Upper_left, MD.Forward, speed_LF)
     mecanumRobotV2.Motor(LR.Lower_left, MD.Forward, speed_LB)
@@ -98,22 +99,15 @@ function drift_right() {
     mecanumRobotV2.Motor(LR.Lower_right, MD.Back, speed_RB)
 }
 
+// ---------- Autonomous modes ----------
 function tracking() {
-    if (mecanumRobotV2.LineTracking(LT.Left) == 0 && (mecanumRobotV2.LineTracking(LT.Center) == 0 && mecanumRobotV2.LineTracking(LT.Right) == 0)) {
+    if (mecanumRobotV2.LineTracking(LT.Left) == 0 && mecanumRobotV2.LineTracking(LT.Center) == 0 && mecanumRobotV2.LineTracking(LT.Right) == 0) {
         mecanumRobotV2.state()
-    } else if (mecanumRobotV2.LineTracking(LT.Left) == 0 && (mecanumRobotV2.LineTracking(LT.Center) == 0 && mecanumRobotV2.LineTracking(LT.Right) == 1)) {
+    } else if (mecanumRobotV2.LineTracking(LT.Right) == 1 && mecanumRobotV2.LineTracking(LT.Center) == 0) {
         car_right()
-    } else if (mecanumRobotV2.LineTracking(LT.Left) == 0 && (mecanumRobotV2.LineTracking(LT.Center) == 1 && mecanumRobotV2.LineTracking(LT.Right) == 0)) {
-        car_forward()
-    } else if (mecanumRobotV2.LineTracking(LT.Left) == 0 && (mecanumRobotV2.LineTracking(LT.Center) == 1 && mecanumRobotV2.LineTracking(LT.Right) == 1)) {
-        car_right()
-    } else if (mecanumRobotV2.LineTracking(LT.Left) == 1 && (mecanumRobotV2.LineTracking(LT.Center) == 0 && mecanumRobotV2.LineTracking(LT.Right) == 0)) {
+    } else if (mecanumRobotV2.LineTracking(LT.Left) == 1 && mecanumRobotV2.LineTracking(LT.Center) == 0) {
         car_left()
-    } else if (mecanumRobotV2.LineTracking(LT.Left) == 1 && (mecanumRobotV2.LineTracking(LT.Center) == 0 && mecanumRobotV2.LineTracking(LT.Right) == 1)) {
-        car_forward()
-    } else if (mecanumRobotV2.LineTracking(LT.Left) == 1 && (mecanumRobotV2.LineTracking(LT.Center) == 1 && mecanumRobotV2.LineTracking(LT.Right) == 0)) {
-        car_left()
-    } else if (mecanumRobotV2.LineTracking(LT.Left) == 1 && (mecanumRobotV2.LineTracking(LT.Center) == 1 && mecanumRobotV2.LineTracking(LT.Right) == 1)) {
+    } else {
         car_forward()
     }
 }
@@ -121,9 +115,10 @@ function tracking() {
 function follow() {
     mecanumRobotV2.setServo(90)
     basic.pause(200)
-    if (mecanumRobotV2.ultra() <= 10) {
+    const d = mecanumRobotV2.ultra()
+    if (d <= 10) {
         car_back()
-    } else if (mecanumRobotV2.ultra() > 20 && mecanumRobotV2.ultra() <= 40) {
+    } else if (d > 20 && d <= 40) {
         car_forward()
     } else {
         mecanumRobotV2.state()
@@ -131,151 +126,89 @@ function follow() {
 }
 
 function avoid() {
-    distance = mecanumRobotV2.ultra()
+    let distance = mecanumRobotV2.ultra()
     if (distance < 15) {
         mecanumRobotV2.state()
-        basic.pause(300)
-
+        basic.pause(200)
         mecanumRobotV2.setServo(160)
-        basic.pause(300)
-        distance_l = mecanumRobotV2.ultra()
-        basic.pause(100)
-
+        basic.pause(200)
+        const distance_l = mecanumRobotV2.ultra()
         mecanumRobotV2.setServo(20)
-        basic.pause(300)
-        distance_r = mecanumRobotV2.ultra()
-        basic.pause(100)
-
+        basic.pause(200)
+        const distance_r = mecanumRobotV2.ultra()
         mecanumRobotV2.setServo(90)
-        basic.pause(300)
+        basic.pause(200)
 
         if (distance_l > distance_r) {
             car_left()
-            basic.pause(400)
         } else {
             car_right()
-            basic.pause(400)
         }
+        basic.pause(400)
+        mecanumRobotV2.state()
     } else {
         car_forward()
     }
 }
 
-// Handle each complete UART command (terminated by '#') without a blocking while-loop
-function handleCommand(cmd: string) {
-    ble_val = cmd
+// ---------- BLE command handling ----------
+function applyCommand(cmd: string) {
+    lastCmd = cmd
 
-    if (cmd == "a") {
-        mode = ""
-        car_forward()
-    } else if (cmd == "b") {
-        mode = ""
-        car_left()
-    } else if (cmd == "c") {
-        mode = ""
-        car_back()
-    } else if (cmd == "d") {
-        mode = ""
-        car_right()
-    } else if (cmd == "k") {
-        mode = ""
-        car_left_move()
-    } else if (cmd == "h") {
-        mode = ""
-        car_right_move()
-    } else if (cmd == "g") {
-        mode = ""
-        car_move_RF()
-    } else if (cmd == "i") {
-        mode = ""
-        car_move_RB()
-    } else if (cmd == "j") {
-        mode = ""
-        car_move_LB()
-    } else if (cmd == "l") {
-        mode = ""
-        car_move_LF()
-    } else if (cmd == "e") {
-        mode = ""
-        drift_left()
-    } else if (cmd == "f") {
-        mode = ""
-        drift_right()
-    } else if (cmd == "s") {
-        mode = ""
-        mecanumRobotV2.state()
-        mecanumRobotV2.setServo(90)
-    } else if (cmd == "t") {
-        mecanumRobotV2.setLed(LedCount.Left, LedState.ON)
-        mecanumRobotV2.setLed(LedCount.Right, LedState.ON)
-    } else if (cmd == "u") {
-        mecanumRobotV2.setLed(LedCount.Left, LedState.OFF)
-        mecanumRobotV2.setLed(LedCount.Right, LedState.OFF)
-    } else if (cmd == "p" || cmd == "q" || cmd == "r") {
-        // autonomous modes driven in forever loop
-        mode = cmd
-    } else if (cmd == "v" || cmd == "w" || cmd == "x" || cmd == "y") {
-        // speed update commands: expect another numeric payload terminated by '#'
-        // Use a short deferred read so the next payload has time to arrive
-        control.inBackground(function () {
-            let payload = bluetooth.uartReadUntil(serial.delimiters(Delimiters.Hash))
-            let n = parseFloat(payload)
-
-            if (!isNaN(n)) {
-                if (cmd == "v") speed_LF = n
-                if (cmd == "w") speed_LB = n
-                if (cmd == "x") speed_RF = n
-                if (cmd == "y") speed_RB = n
-            }
-        })
-    }
+    if (cmd == "a") car_forward()
+    else if (cmd == "b") car_left()
+    else if (cmd == "c") car_back()
+    else if (cmd == "d") car_right()
+    else if (cmd == "k") car_left_move()
+    else if (cmd == "h") car_right_move()
+    else if (cmd == "g") car_move_RF()
+    else if (cmd == "i") car_move_RB()
+    else if (cmd == "j") car_move_LB()
+    else if (cmd == "l") car_move_LF()
+    else if (cmd == "e") drift_left()
+    else if (cmd == "f") drift_right()
+    else if (cmd == "s") { mode = ""; mecanumRobotV2.state(); mecanumRobotV2.setServo(90) }
+    else if (cmd == "t") { mecanumRobotV2.setLed(LedCount.Left, LedState.ON); mecanumRobotV2.setLed(LedCount.Right, LedState.ON) }
+    else if (cmd == "u") { mecanumRobotV2.setLed(LedCount.Left, LedState.OFF); mecanumRobotV2.setLed(LedCount.Right, LedState.OFF) }
+    else if (cmd == "p" || cmd == "q" || cmd == "r") { mode = cmd }
 }
 
-// ---- Bluetooth setup ----
-// Start UART service explicitly
-bluetooth.startUartService()
-
-// Optional: send debug to USB when connected to computer (harmless on battery)
-serial.redirectToUSB()
-
-// Keep LED matrix enabled for pairing/debug visibility
-led.enable(true)
-
-// Receive each UART message (terminated by '#') as an event
 bluetooth.onUartDataReceived(serial.delimiters(Delimiters.Hash), function () {
-    let cmd = bluetooth.uartReadUntil(serial.delimiters(Delimiters.Hash))
-    // cmd may include empty strings if delimiters are doubled; ignore empties
-    if (cmd.length > 0) {
-        handleCommand(cmd)
-        serial.writeString(cmd)
-        serial.writeLine("")
+    const msg = bluetooth.uartReadUntil(serial.delimiters(Delimiters.Hash))
+    if (msg.length == 0) return
+
+    // speed messages are two-part: "v#<num>#", "w#<num>#", etc.
+    if (msg == "v" || msg == "w" || msg == "x" || msg == "y") {
+        basic.pause(20)
+        const nStr = bluetooth.uartReadUntil(serial.delimiters(Delimiters.Hash))
+        const n = parseFloat(nStr)
+        if (!isNaN(n)) {
+            if (msg == "v") speed_LF = n
+            else if (msg == "w") speed_LB = n
+            else if (msg == "x") speed_RF = n
+            else if (msg == "y") speed_RB = n
+        }
+        return
     }
+
+    applyCommand(msg)
 })
 
-// Optional: show a simple icon when BLE connects/disconnects (visible because LED is enabled)
 bluetooth.onBluetoothConnected(function () {
     basic.showIcon(IconNames.Yes)
-    basic.pause(200)
-    basic.clearScreen()
 })
 
 bluetooth.onBluetoothDisconnected(function () {
     basic.showIcon(IconNames.No)
-    basic.pause(200)
-    basic.clearScreen()
+    mode = ""
     mecanumRobotV2.state()
 })
 
-// ---- Main loop for autonomous modes ----
+// ---------- Main loop for autonomous modes ----------
+basic.showIcon(IconNames.Heart)
 basic.forever(function () {
-    if (mode == "p") {
-        tracking()
-    } else if (mode == "q") {
-        follow()
-    } else if (mode == "r") {
-        avoid()
-    } else {
-        // no autonomous mode
-        basic.pause(20)
-    }
+    if (mode == "p") tracking()
+    else if (mode == "q") follow()
+    else if (mode == "r") avoid()
+    else basic.pause(20)
 })
