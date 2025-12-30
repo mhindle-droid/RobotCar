@@ -5,7 +5,8 @@
         "core": "*",
         "microphone": "*",
         "pxt-mecanum-robot-V2": "github:keyestudio2019/mecanum_robot_v2#f161a000ae13c11373ee2549d0a6147e103ff3cf",
-        "bluetooth": "*"
+        "bluetooth": "*",
+        "MakerBit-IR-Receiver": "github:1010technologies/pxt-makerbit-ir-receiver#v1.5.14"
     },
     "files": [
         "main.blocks",
